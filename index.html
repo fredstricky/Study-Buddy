@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>StudyBuddy — Flashcards & Quizzes</title>
+  <meta name="description" content="Create decks, practice with quizzes, and track progress. Data stays in your browser." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
+  <script src="app.js" defer></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(console.error);
+      });
+    }
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen">
+  <div class="max-w-5xl mx-auto p-4">
+    <header class="flex items-center justify-between mb-4">
+      <h1 class="text-2xl md:text-3xl font-bold">StudyBuddy <span class="text-zinc-400 text-base">— Flashcards & Quizzes</span></h1>
+      <div class="flex gap-2">
+        <button id="exportBtn" class="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700">Export CSV</button>
+        <label class="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 cursor-pointer">
+          Import CSV
+          <input id="importInput" type="file" accept=".csv" class="hidden" />
+        </label>
+      </div>
+    </header>
+
+    <main x-data="studyBuddy()" x-init="init()" class="grid md:grid-cols-3 gap-4">
+      <section class="md:col-span-1 space-y-3">
+        <div class="p-4 rounded-2xl bg-zinc-900">
+          <h2 class="font-semibold mb-2">Decks</h2>
+          <div class="flex gap-2 mb-2">
+            <input x-model="newDeckName" @keydown.enter="addDeck()" placeholder="New deck name" class="flex-1 px-3 py-2 rounded-xl bg-zinc-800 outline-none" />
+            <button @click="addDeck()" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500">Add</button>
+          </div>
+          <ul class="space-y-1 max-h-72 overflow-auto pr-1">
+            <template x-for="d in decks" :key="d.id">
+              <li class="flex items-center justify-between px-3 py-2 rounded-xl" :class="d.id===activeDeckId ? 'bg-zinc-800' : 'bg-zinc-900'">
+                <button class="text-left truncate flex-1" @click="setActive(d.id)"><span class="font-medium" x-text="d.name"></span> <span class="text-zinc-400" x-text="'('+countCards(d.id)+' cards)'"></span></button>
+                <div class="flex gap-2 ml-2">
+                  <button class="text-xs px-2 py-1 rounded-lg bg-zinc-800" @click="renameDeck(d.id)">Rename</button>
+                  <button class="text-xs px-2 py-1 rounded-lg bg-red-700" @click="deleteDeck(d.id)">Delete</button>
+                </div>
+              </li>
+            </template>
+          </ul>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-zinc-900">
+          <h2 class="font-semibold mb-2">Study settings</h2>
+          <label class="block mb-2">Daily goal
+            <input type="number" min="5" max="200" x-model.number="settings.dailyGoal" class="w-24 ml-2 px-3 py-2 rounded-xl bg-zinc-800 outline-none">
+          </label>
+          <label class="block">Shuffle order
+            <input type="checkbox" x-model="settings.shuffle" class="ml-2 align-middle">
+          </label>
+          <p class="text-sm text-zinc-400 mt-2">Progress is saved automatically.</p>
+        </div>
+      </section>
+
+      <section class="md:col-span-2 space-y-3">
+        <div class="p-4 rounded-2xl bg-zinc-900">
+          <h2 class="font-semibold mb-3" x-text="activeDeck ? ('Cards in ‘'+activeDeck.name+'’') : 'No deck selected'"></h2>
+          <template x-if="activeDeck">
+            <div>
+              <div class="flex gap-2 mb-3">
+                <input x-model="newFront" @keydown.enter="addCard()" placeholder="Front (question/prompt)" class="flex-1 px-3 py-2 rounded-xl bg-zinc-800 outline-none" />
+                <input x-model="newBack" @keydown.enter="addCard()" placeholder="Back (answer)" class="flex-1 px-3 py-2 rounded-xl bg-zinc-800 outline-none" />
+                <button @click="addCard()" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500">Add</button>
+              </div>
+              <ul class="space-y-2 max-h-64 overflow-auto pr-1">
+                <template x-for="c in cardsForActive()" :key="c.id">
+                  <li class="p-3 rounded-xl bg-zinc-800">
+                    <div class="flex items-start justify-between gap-2">
+                      <div class="flex-1">
+                        <div class="font-medium" x-text="c.front"></div>
+                        <div class="text-zinc-300" x-text="c.back"></div>
+                      </div>
+                      <div class="flex gap-2">
+                        <button class="text-xs px-2 py-1 rounded-lg bg-zinc-700" @click="editCard(c.id)">Edit</button>
+                        <button class="text-xs px-2 py-1 rounded-lg bg-red-700" @click="deleteCard(c.id)">Delete</button>
+                      </div>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </template>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-zinc-900">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="font-semibold">Quiz mode</h2>
+            <button @click="startQuiz()" :disabled="!activeDeck || cardsForActive().length===0" class="px-3 py-2 rounded-xl bg-emerald-600 disabled:opacity-50">Start</button>
+          </div>
+          <template x-if="quiz.active">
+            <div class="space-y-3">
+              <div class="p-3 rounded-xl bg-zinc-800">
+                <div class="text-sm text-zinc-300 mb-2" x-text="'Card '+(quiz.index+1)+'/'+quiz.queue.length"></div>
+                <div class="text-lg font-semibold" x-text="quiz.current.front"></div>
+                <textarea x-model="quiz.userAnswer" placeholder="Type your answer… (or click Reveal)" class="mt-3 w-full px-3 py-2 rounded-xl bg-zinc-900 outline-none"></textarea>
+                <div class="mt-3 flex gap-2">
+                  <button class="px-3 py-2 rounded-xl bg-zinc-700" @click="quiz.revealed=true">Reveal</button>
+                  <button class="px-3 py-2 rounded-xl bg-emerald-600" @click="grade(true)">I was right</button>
+                  <button class="px-3 py-2 rounded-xl bg-rose-700" @click="grade(false)">I was wrong</button>
+                </div>
+                <template x-if="quiz.revealed">
+                  <p class="mt-2 text-zinc-300"><span class="text-zinc-400">Answer:</span> <span x-text="quiz.current.back"></span></p>
+                </template>
+              </div>
+              <div class="text-sm text-zinc-400" x-text="'Streak: '+stats.streak+' • Correct today: '+stats.correctToday+'/'+settings.dailyGoal"></div>
+            </div>
+          </template>
+          <template x-if="!quiz.active">
+            <p class="text-zinc-400">Click Start to practice cards from the selected deck.</p>
+          </template>
+        </div>
+      </section>
+    </main>
+
+    <footer class="text-center text-zinc-500 text-sm mt-8">
+      <p>Data stays on your device. Built with ❤️ using vanilla JS + Alpine.js.</p>
+    </footer>
+  </div>
+</body>
+</html>
